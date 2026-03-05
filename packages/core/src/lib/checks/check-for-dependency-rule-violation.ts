@@ -60,6 +60,8 @@ export function checkForDependencyRuleViolation(
           toModulePath: toFsPath(importedModulePath),
           fromFilePath: fsPath,
           toFilePath: toFsPath(importedModulePath),
+          fromTags,
+          toTags,
         },
       );
 

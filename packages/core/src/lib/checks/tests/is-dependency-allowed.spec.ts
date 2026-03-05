@@ -17,6 +17,8 @@ const dummyContext: DependencyCheckContext = {
   toModulePath: '/project/moduleTo' as FsPath,
   fromFilePath: '/project/moduleFrom/some.component.ts' as FsPath,
   toFilePath: '/project/cool.service.ts' as FsPath,
+  fromTags: ['domain:customers'],
+  toTags: ['domain:holidays'],
 };
 
 const createAssertsForConfig = (config: DependencyRulesConfig) => {
@@ -27,7 +29,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          {} as DependencyCheckContext,
+          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
         ),
       ).toBe(true);
     },
@@ -37,7 +39,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          {} as DependencyCheckContext,
+          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
         ),
       ).toBe(false);
     },
@@ -48,7 +50,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          {} as DependencyCheckContext,
+          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
         ),
       ).toBe(expected);
     },
