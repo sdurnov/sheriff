@@ -10,9 +10,9 @@ export interface DependencyCheckContext {
 }
 
 // Backward compatible: supports both old signature (from, to as strings)
-// and new signature (fromTags, toTags as arrays)
+// and new signature (fromTags, toTags as arrays plus full context)
 export type RuleMatcherFn = (
-  context: { from: string; to: string; fromTags: string[]; toTags: string[]; fromModulePath: FsPath; toModulePath: FsPath; fromFilePath: FsPath; toFilePath: FsPath },
+  context: { from: string; to: string } & Required<DependencyCheckContext>,
 ) => boolean;
 
 export type RuleMatcher = string | null | RuleMatcherFn;

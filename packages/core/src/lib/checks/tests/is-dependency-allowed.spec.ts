@@ -12,14 +12,26 @@ import '../../test/expect.extensions';
 
 type TestParams = [string, boolean][];
 
-const dummyContext: DependencyCheckContext = {
+const createMockDependencyCheckContext = (
+  overrides?: Partial<DependencyCheckContext>,
+): DependencyCheckContext => ({
+  fromModulePath: '' as FsPath,
+  toModulePath: '' as FsPath,
+  fromFilePath: '' as FsPath,
+  toFilePath: '' as FsPath,
+  fromTags: [],
+  toTags: [],
+  ...overrides,
+});
+
+const dummyContext: DependencyCheckContext = createMockDependencyCheckContext({
   fromModulePath: '/project/moduleFrom' as FsPath,
   toModulePath: '/project/moduleTo' as FsPath,
   fromFilePath: '/project/moduleFrom/some.component.ts' as FsPath,
   toFilePath: '/project/cool.service.ts' as FsPath,
   fromTags: ['domain:customers'],
   toTags: ['domain:holidays'],
-};
+});
 
 const createAssertsForConfig = (config: DependencyRulesConfig) => {
   return {
@@ -29,7 +41,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
+          createMockDependencyCheckContext(),
         ),
       ).toBe(true);
     },
@@ -39,7 +51,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
+          createMockDependencyCheckContext(),
         ),
       ).toBe(false);
     },
@@ -50,7 +62,7 @@ const createAssertsForConfig = (config: DependencyRulesConfig) => {
           from,
           Array.isArray(to) ? to : [to],
           config,
-          { fromTags: [], toTags: [], fromModulePath: '' as FsPath, toModulePath: '' as FsPath, fromFilePath: '' as FsPath, toFilePath: '' as FsPath } as DependencyCheckContext,
+          createMockDependencyCheckContext(),
         ),
       ).toBe(expected);
     },
@@ -212,4 +224,326 @@ describe('check dependency rules', () => {
       assertInvalid('type:model', toTag);
     },
   );
+
+  describe('fromTags and toTags', () => {
+    it('should provide fromTags in the context object', () => {
+      isDependencyAllowed(
+        'domain:customers',
+        ['domain:holidays'],
+        {
+          'domain:customers': (context) => {
+            expect(Array.isArray(context.fromTags)).toBe(true);
+            expect(Array.isArray(context.toTags)).toBe(true);
+            return true;
+          },
+        },
+        createMockDependencyCheckContext({
+          fromTags: ['domain:customers', 'type:feature'],
+          toTags: ['domain:holidays', 'type:ui'],
+        }),
+      );
+    });
+
+    it('should provide toTags in the context object', () => {
+      isDependencyAllowed(
+        'domain:customers',
+        ['domain:holidays'],
+        {
+          'domain:customers': (context) => {
+            expect(context.toTags).toEqual(['domain:holidays', 'type:ui']);
+            return true;
+          },
+        },
+        createMockDependencyCheckContext({
+          fromTags: ['domain:customers'],
+          toTags: ['domain:holidays', 'type:ui'],
+        }),
+      );
+    });
+
+    it('should allow complex cross-domain rules using fromTags and toTags', () => {
+      const config = {
+        // Allow access to shared domain from any domain
+        // but forbid cross-domain access except for API
+        '*': ({ fromTags, toTags }: { fromTags: string[]; toTags: string[] }) => {
+          const fromDomain = fromTags.find((t: string) => t.startsWith('domain:'));
+          const toDomain = toTags.find((t: string) => t.startsWith('domain:'));
+          const fromType = fromTags.find((t: string) => t.startsWith('type:'));
+          const toType = toTags.find((t: string) => t.startsWith('type:'));
+
+          // Allow access to shared domain
+          if (toDomain === 'domain:shared') return true;
+
+          // Allow API access across domains
+          if (fromType === 'type:api' || toType === 'type:api') return true;
+
+          // Same domain is OK
+          if (fromDomain === toDomain) return true;
+
+          return false;
+        },
+      } as const;
+
+      // Test cases
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:shared'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:shared'],
+          }),
+        ),
+      ).toBe(true);
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:holidays'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:holidays'],
+          }),
+        ),
+      ).toBe(false);
+
+      expect(
+        isDependencyAllowed(
+          'type:api',
+          ['domain:holidays'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['type:api', 'domain:customers'],
+            toTags: ['domain:holidays', 'type:ui'],
+          }),
+        ),
+      ).toBe(true);
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['type:api'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers', 'type:feature'],
+            toTags: ['type:api', 'domain:holidays'],
+          }),
+        ),
+      ).toBe(true);
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:customers'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:customers'],
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('should allow rule based on multiple tags using fromTags and toTags', () => {
+      const config = {
+        // Only allow feature -> data access within same domain
+        // or feature -> feature access
+        'type:feature': ({ fromTags, toTags }: { fromTags: string[]; toTags: string[] }) => {
+          const fromDomain = fromTags.find((t: string) => t.startsWith('domain:'));
+          const toDomain = toTags.find((t: string) => t.startsWith('domain:'));
+          const toType = toTags.find((t: string) => t.startsWith('type:'));
+
+          // Allow feature -> data within same domain
+          if (toType === 'type:data' && fromDomain === toDomain) return true;
+
+          // Allow feature -> feature
+          if (toType === 'type:feature') return true;
+
+          return false;
+        },
+      } as const;
+
+      expect(
+        isDependencyAllowed(
+          'type:feature',
+          ['type:feature'],
+          config,
+          createMockDependencyCheckContext({
+            toTags: ['domain:customers', 'type:feature'],
+          }),
+        ),
+      ).toBe(true);
+
+      // No type tag should fail
+      expect(
+        isDependencyAllowed(
+          'type:feature',
+          ['domain:customers'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers', 'type:feature'],
+            toTags: ['domain:customers'],
+          }),
+        ),
+      ).toBe(false);
+    });
+
+    it('should support wildcard rules with fromTags and toTags', () => {
+      const config = {
+        '*': ({ fromTags, toTags }: { fromTags: string[]; toTags: string[] }) => {
+          const fromDomain = fromTags.find((t: string) => t.startsWith('domain:'));
+          const toDomain = toTags.find((t) => t.startsWith('domain:'));
+
+          // Same domain always allowed
+          if (fromDomain === toDomain) return true;
+
+          // Only allow cross-domain access to shared
+          return toDomain === 'domain:shared';
+        },
+      } as const;
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:customers'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:customers'],
+          }),
+        ),
+      ).toBe(true);
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:shared'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:shared'],
+          }),
+        ),
+      ).toBe(true);
+
+      expect(
+        isDependencyAllowed(
+          'domain:customers',
+          ['domain:holidays'],
+          config,
+          createMockDependencyCheckContext({
+            fromTags: ['domain:customers'],
+            toTags: ['domain:holidays'],
+          }),
+        ),
+      ).toBe(false);
+    });
+
+    it('should work with string rules and function rules using fromTags/toTags', () => {
+      const { assertValid } = createAssertsForConfig({
+        // String rule still works
+        'type:feature': 'type:ui',
+        // Function rule can use fromTags/toTags
+        'type:ui': ({ fromTags, toTags }) => {
+          const fromDomain = fromTags.find((t) => t.startsWith('domain:'));
+          const toDomain = toTags.find((t) => t.startsWith('domain:'));
+          return fromDomain === toDomain;
+        },
+      });
+
+      // String rule works
+      assertValid('type:feature', 'type:ui');
+
+      // Function rule uses fromTags/toTags
+      isDependencyAllowed(
+        'type:ui',
+        ['domain:customers'],
+        {
+          'type:ui': ({ fromTags, toTags }) => {
+            const fromDomain = fromTags.find((t) => t.startsWith('domain:'));
+            const toDomain = toTags.find((t) => t.startsWith('domain:'));
+            return fromDomain === toDomain;
+          },
+        },
+        createMockDependencyCheckContext({
+          fromTags: ['domain:customers', 'type:ui'],
+          toTags: ['domain:customers'],
+        }),
+      );
+    });
+
+    it('should include all context properties in matcher function', () => {
+      isDependencyAllowed(
+        'domain:customers',
+        ['domain:holidays'],
+        {
+          'domain:customers': (context) => {
+            expect(context.from).toBe('domain:customers');
+            expect(context.to).toBe('domain:holidays');
+            expect(context.fromTags).toEqual(['domain:customers']);
+            expect(context.toTags).toEqual(['domain:holidays']);
+            expect(context.fromModulePath).toBeDefined();
+            expect(context.toModulePath).toBeDefined();
+            expect(context.fromFilePath).toBeDefined();
+            expect(context.toFilePath).toBeDefined();
+            return true;
+          },
+        },
+        createMockDependencyCheckContext({
+          fromModulePath: '/project/customers' as FsPath,
+          toModulePath: '/project/holidays' as FsPath,
+          fromFilePath: '/project/customers/index.ts' as FsPath,
+          toFilePath: '/project/holidays/index.ts' as FsPath,
+          fromTags: ['domain:customers'],
+          toTags: ['domain:holidays'],
+        }),
+      );
+    });
+
+    it('should handle empty fromTags and toTags arrays', () => {
+      const { assertInvalid } = createAssertsForConfig({
+        '*': ({ fromTags, toTags }: { fromTags: string[]; toTags: string[] }) => {
+          // If no tags, deny by default
+          if (fromTags.length === 0 || toTags.length === 0) return false;
+          return true;
+        },
+      });
+
+      assertInvalid('no-tag', 'other-tag');
+    });
+
+    it('should allow rule that checks for presence of specific tags', () => {
+      const rule = (context: { from: string; to: string } & Required<DependencyCheckContext>) => {
+        return context.toTags.includes('type:shared');
+      };
+
+      // Test case 1: toTags contains type:shared
+      const result1 = isDependencyAllowed(
+        'domain:customers',
+        ['domain:shared'],
+        { 'domain:customers': rule },
+        createMockDependencyCheckContext({
+          fromTags: ['domain:customers'],
+          toTags: ['domain:shared', 'type:shared'],
+        }),
+      );
+
+      expect(result1).toBe(true);
+
+      // Test case 2: toTags does not contain type:shared
+      const result2 = isDependencyAllowed(
+        'domain:customers',
+        ['domain:holidays'],
+        { 'domain:customers': rule },
+        createMockDependencyCheckContext({
+          fromTags: ['domain:customers'],
+          toTags: ['domain:holidays', 'type:ui'],
+        }),
+      );
+
+      expect(result2).toBe(false);
+    });
+  });
 });
